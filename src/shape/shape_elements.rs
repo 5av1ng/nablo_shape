@@ -103,8 +103,8 @@ pub struct Style {
 #[derive(serde::Deserialize, serde::Serialize, Clone, Debug, PartialEq, Eq, Default, Copy, PartialOrd, Ord, Hash)]
 /// where should we draw?
 pub enum Layer {
-	Background = 0,
-	#[default] Bottom = 1,
+	#[default] Background = 0,
+	Bottom = 1,
 	Middle = 2,
 	Foreground = 3,
 	ToolTips = 4,
