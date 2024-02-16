@@ -155,12 +155,6 @@ impl Painter {
 	}
 
 	#[cfg(feature = "vertexs")]
-	/// set how much point will we sample when drawing curves, Note: this function only affects on newly added shapes.
-	pub fn set_sample_points(&mut self, sample_points: usize) {
-		self.style.sample_points = sample_points;
-	}
-
-	#[cfg(feature = "vertexs")]
 	/// draw a given shape, returns drawn text index.
 	///
 	/// note: `nablo` will not paint a shape outside `paint_area` and will automaticly cut the shape.
@@ -180,53 +174,55 @@ impl Painter {
 			return None
 		}
 
-		if self.paint_area.is_inside(&shape.get_area()) {
-			self.shapes.push(shape)
-		}else if self.paint_area.is_cross(&shape.get_area()) && self.is_cut {
-			let mut polygon = shape.into_polygon();
-			polygon.style(&self.style);
-			let mut points: Vec<Vec2> = (0..polygon.len()).into_par_iter().filter_map(|point_id| {
-				let id1 = point_id;
-				let id2 = (point_id + 1) % polygon.len();
-				let cross = self.paint_area.find_cross(&polygon[id1], &polygon[id2]);
-				if let Some(t) = cross {
-					return Some(t)
-				}
-				if self.paint_area.is_point_inside(&polygon[id2]) {
-					return Some(polygon[id2])
-				}
-				None
-			}).collect();
-			let area_points = [self.paint_area.left_top(), self.paint_area.left_bottom(), self.paint_area.right_bottom(), self.paint_area.right_top()];
-			for area_point in area_points {
-				if polygon.is_point_inside(area_point) {
-					points.push(area_point)
-				}
-			}
-			let mut points = Polygon {
-				points,
-				is_styled: true,
-			};
-			points.sort();
-			let shape = Shape {
-				style: self.style.clone(),
-				shape: ShapeElement::Polygon(points), 
-				..Default::default()
-			};
-			self.shapes.push(shape);
-		}else if shape.into_polygon().is_point_inside(self.paint_area.left_top()) && self.is_cut {
-			let shape = Shape {
-				style: self.style.clone(),
-				shape: ShapeElement::Rect(Rect {
-					width_and_height: Vec2::new(self.paint_area.width(), self.paint_area.height()),
-					..Default::default()
-				}),
-				..Default::default()
-			};
-			self.shapes.push(shape);
-		}else {
-			return None
-		}
+		// if self.paint_area.is_inside(&shape.get_area()) {
+		// 	self.shapes.push(shape)
+		// }else if self.paint_area.is_cross(&shape.get_area()) && self.is_cut {
+		// 	let mut polygon = shape.into_polygon();
+		// 	polygon.style(&self.style);
+		// 	let mut points: Vec<Vec2> = (0..polygon.len()).into_par_iter().filter_map(|point_id| {
+		// 		let id1 = point_id;
+		// 		let id2 = (point_id + 1) % polygon.len();
+		// 		let cross = self.paint_area.find_cross(&polygon[id1], &polygon[id2]);
+		// 		if let Some(t) = cross {
+		// 			return Some(t)
+		// 		}
+		// 		if self.paint_area.is_point_inside(&polygon[id2]) {
+		// 			return Some(polygon[id2])
+		// 		}
+		// 		None
+		// 	}).collect();
+		// 	let area_points = [self.paint_area.left_top(), self.paint_area.left_bottom(), self.paint_area.right_bottom(), self.paint_area.right_top()];
+		// 	for area_point in area_points {
+		// 		if polygon.is_point_inside(area_point) {
+		// 			points.push(area_point)
+		// 		}
+		// 	}
+		// 	let mut points = Polygon {
+		// 		points,
+		// 		is_styled: true,
+		// 	};
+		// 	points.sort();
+		// 	let shape = Shape {
+		// 		style: self.style.clone(),
+		// 		shape: ShapeElement::Polygon(points), 
+		// 		..Default::default()
+		// 	};
+		// 	self.shapes.push(shape);
+		// }else if shape.into_polygon().is_point_inside(self.paint_area.left_top()) && self.is_cut {
+		// 	let shape = Shape {
+		// 		style: self.style.clone(),
+		// 		shape: ShapeElement::Rect(Rect {
+		// 			width_and_height: Vec2::new(self.paint_area.width(), self.paint_area.height()),
+		// 			..Default::default()
+		// 		}),
+		// 		..Default::default()
+		// 	};
+		// 	self.shapes.push(shape);
+		// }else {
+		// 	return None
+		// }
+
+		self.shapes.push(shape);
 		let len = self.shapes.len();
 		Some(len - 1)
 	}
@@ -266,6 +262,11 @@ impl Painter {
 		self.is_cut = is_cut;
 	}
 
+	/// draw a line. see more in [`Self::draw`]
+	pub fn line(&mut self, other_point: Vec2) -> Option<usize> {
+		self.draw(ShapeElement::Line(other_point))
+	}
+
 	/// draw a rectangle. see more in [`Self::draw`]
 	pub fn rect(&mut self, width_and_height: Vec2, rounding: Vec2) -> Option<usize> {
 		self.draw(ShapeElement::Rect(Rect {
@@ -287,6 +288,13 @@ impl Painter {
 			points,
 			if_close: false,
 		}))
+	}
+
+	/// draw a polygon. see more in [`Self::draw`] 
+	pub fn polygon(&mut self, points: Vec<Vec2>) -> Option<usize> {
+		self.draw(ShapeElement::Polygon(
+			points.into()
+		))
 	}
 
 	/// draw a image. see more in [`Self::draw`]
@@ -459,6 +467,11 @@ impl Painter {
 		self.shapes.append(&mut other.shapes)
 	}
 
+	/// push a shape into current painter
+	pub fn push(&mut self, shape: Shape) {
+		self.shapes.push(shape)
+	}
+
 	/// get how large place did current shapes take
 	pub fn get_area(&self) -> Area {
 		let mut area = Area::ZERO;
@@ -492,6 +505,7 @@ pub enum ShapeElement {
 	Rect(Rect),
 	Text(Text),
 	CubicBezier(CubicBezier),
+	Line(Vec2),
 	Polygon(Polygon),
 	Image(Image)
 }
@@ -507,6 +521,7 @@ impl ShapeElement {
 			Self::Rect(t) => ShapeMask::Rect(t.clone()),
 			Self::CubicBezier(t) => ShapeMask::CubicBezier(t.clone()),
 			Self::Polygon(t) => ShapeMask::Polygon(t.clone()),
+			Self::Line(t) => ShapeMask::Line(t.clone()),
 			_ => unreachable!()
 		}
 	}
@@ -517,6 +532,7 @@ impl ShapeElement {
 pub enum ShapeMask {
 	Circle(Circle),
 	Rect(Rect),
+	Line(Vec2),
 	CubicBezier(CubicBezier),
 	Polygon(Polygon),
 }
@@ -530,20 +546,60 @@ impl Default for ShapeElement {
 impl Shape {
 	/// convert a shape into vertexs
 	#[cfg(feature = "vertexs")]
-	pub fn into_vertexs(&self, size: Vec2, index: u32) -> (Vec<Vertex>, Vec<u32>) {
+	pub fn into_vertexs(&self, size: Vec2) -> (Vec<Vertex>, Vec<u32>) {
 		match &self.shape {
 			ShapeElement::Circle(t) => {
-				t.into_vertexs(&self.style, size, index)
+				t.into_vertexs(&self.style, size)
 			},
 			ShapeElement::Rect(t) => {
-				t.into_vertexs(&self.style, size, index)
+				t.into_vertexs(&self.style, size)
 			},
 			ShapeElement::CubicBezier(t) => {
-				t.into_vertexs(&self.style, size, index)
+				t.into_vertexs(&self.style, size)
 			},
-			ShapeElement::Polygon(t) => t.into_vertexs(&self.style, size, index),
+			ShapeElement::Polygon(t) => t.into_vertexs(&self.style, size),
 			ShapeElement::Text(_) => unreachable!(),
 			ShapeElement::Image(_) => unreachable!(),
+		}
+	}
+
+	/// pre-scale current shape with (0,0), useful when scaling svg.
+	pub fn pre_scale(&mut self, scale_factor: f32) {
+		self.style = Style {
+			position: self.style.position * scale_factor,
+			transform_origin: self.style.transform_origin * scale_factor,
+			stroke_width: self.style.stroke_width * scale_factor,
+			clip: [self.style.clip.area[0] * scale_factor, self.style.clip.area[1] * scale_factor].into(),
+			..self.style
+		};
+		match &mut self.shape {
+			ShapeElement::Circle(t) => {
+				t.radius = t.radius * scale_factor;
+			},
+			ShapeElement::Rect(t) => {
+				t.width_and_height = t.width_and_height * scale_factor;
+				t.rounding = t.rounding * scale_factor;
+			},
+			ShapeElement::CubicBezier(t) => {
+				for point in &mut t.points {
+					*point = *point * scale_factor;
+				}
+			},
+			ShapeElement::Polygon(t) => {
+				for point in &mut t.points {
+					*point = *point * scale_factor;
+				}
+			},
+			ShapeElement::Text(_) => {
+				// not a good idea
+				self.style.size = self.style.size * scale_factor;
+			},
+			ShapeElement::Image(t) => {
+				t.size = t.size * scale_factor
+			},
+			ShapeElement::Line(t1) => {
+				*t1 = *t1 * scale_factor;
+			},
 		}
 	}
 
@@ -568,27 +624,9 @@ impl Shape {
 			ShapeElement::Image(t) => {
 				t.get_area(&self.style)
 			},
-		}
-	}
-
-	/// mainly for cutting shapes
-	#[cfg(feature = "vertexs")]
-	pub fn into_polygon(&self) -> Polygon {
-		match &self.shape {
-			ShapeElement::Circle(t) => {
-				t.into_polygon(self.style.sample_points)
+			ShapeElement::Line(t1) => {
+				Area::new(self.style.position, *t1).transform(&self.style)
 			},
-			ShapeElement::Rect(t) => {
-				t.into_polygon(self.style.sample_points)
-			},
-			ShapeElement::CubicBezier(t) => {
-				t.into_polygon(self.style.sample_points)
-			},
-			ShapeElement::Polygon(t) => {
-				t.into_polygon(self.style.sample_points)
-			},
-			ShapeElement::Text(_) => unreachable!(),
-			ShapeElement::Image(_) => unreachable!(),
 		}
 	}
 

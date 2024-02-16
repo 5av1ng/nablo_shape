@@ -3,6 +3,9 @@
 //! You can use your shape by adding the [`Shape`] trait.
 //! Or just using [`Svg`] to print your svg with out animation.
 
+// use once_cell::sync::Lazy;
+// use fontdue::Font;
+use std::ops::Mul;
 use crate::prelude::ShapeMask;
 use std::ops::IndexMut;
 use std::ops::Index;
@@ -16,19 +19,16 @@ use rayon::prelude::*;
 
 /// refer to css.
 pub const EM: f32 = 16.0;
+/// TODO: font change support
+// static FONT: Lazy<Font> = Lazy::new(|| {fontdue::Font::from_bytes(include_bytes!("../../font.ttf") as &[u8], Default::default()).expect("loading font failed")});
 
 /// a trait for a shape
 pub trait Shape: Default + Clone + Debug + PartialEq + Animate {
 	/// for some reason, we will process shape as svg.
 	fn into_svg(&self, style: &Style) -> String;
-	#[cfg(feature = "vertexs")]
-	/// translate a shape into polygon (for rendering and get rid of unseen points)
-	fn into_polygon(&self, sample_points: usize) -> Polygon;
 	/// translate a shape to vertexs
 	#[cfg(feature = "vertexs")]
-	fn into_vertexs(&self, style: &Style, size: Vec2, index: u32) -> (Vec<Vertex>, Vec<u32>) {
-		self.into_polygon(style.sample_points).into_vertexs(style, size, index)
-	}
+	fn into_vertexs(&self, style: &Style, size: Vec2) -> (Vec<Vertex>, Vec<u32>);
 	/// For UI framework to ensure where the shape is(using top left point and bottom right point to stand for a rectangle).
 	fn get_area(&self, style: &Style) -> Area;
 	/// tell what have changed which you want be changed in mulitiselection to shapoist.
@@ -93,9 +93,6 @@ pub struct Style {
 	pub stroke_color: Color,
 	/// where should we draw?
 	pub layer: Layer,
-	#[cfg(feature = "vertexs")]
-	/// how much should we sample while transforming into vertexs?
-	pub sample_points: usize,
 	/// you only need to show shapes inside this clip
 	pub clip: Area
 }
@@ -235,6 +232,26 @@ impl Sub<Color> for Color {
 	}
 }
 
+impl Mul<f32> for Color {
+	type Output = Color;
+	fn mul(self, input: f32) -> Self::Output {
+		[(self[0] as f32 * input) / 255.0,
+		(self[1] as f32 * input) / 255.0,
+		(self[2] as f32 * input) / 255.0,
+		(self[3] as f32 * input) / 255.0].into()
+	}
+}
+
+impl Mul<Color> for f32 {
+	type Output = Color;
+	fn mul(self, input: Color) -> Self::Output {
+		[(input[0] as f32 * self) / 255.0,
+		(input[1] as f32 * self) / 255.0,
+		(input[2] as f32 * self) / 255.0,
+		(input[3] as f32 * self) / 255.0].into()
+	}
+}
+
 impl Color {
 	pub const WHITE: Color = Self{
 		color: [255,255,255,255]
@@ -284,8 +301,6 @@ impl Default for Style {
 			stroke_width: 0.0,
 			stroke_color: [0; 4].into(),
 			layer: Layer::Bottom,
-			#[cfg(feature = "vertexs")]
-			sample_points: 32,
 			clip: Area::ZERO
 		}
 	}
@@ -416,12 +431,7 @@ impl Shape for Circle {
 	}
 
 	#[cfg(feature = "vertexs")]
-	fn into_polygon(&self, sample_points: usize) -> Polygon {
-		Rect {
-			width_and_height: Vec2::same(2.0 * self.radius),
-			rounding: Vec2::same(self.radius)
-		}.into_polygon(sample_points)
-	}
+	fn into_vertexs(&self, _: &Style, _: Vec2) -> (Vec<Vertex>, Vec<u32>) { todo!() }
 }
 
 impl Animate for Circle {
@@ -463,7 +473,7 @@ impl Shape for Rect {
 	}
 
 	fn get_area(&self, style: &Style) -> Area {
-		Area::new(Vec2::ZERO, self.width_and_height).transfrom(style)
+		Area::new(Vec2::ZERO, self.width_and_height).transform(style)
 	}
 
 	fn delta(&self, rhs: &Self) -> Self {
@@ -481,44 +491,7 @@ impl Shape for Rect {
 	}
 
 	#[cfg(feature = "vertexs")]
-	fn into_polygon(&self, sample_points: usize) -> Polygon {
-		if self.rounding != Vec2::new(0.0,0.0) {
-			fn sample_cir(t: f32, rounding: Vec2, position: Vec2) -> Vec2 {
-				Vec2::new((2.0*PI*t).cos(), - (2.0*PI*t).sin()) * rounding + position
-			}
-			let cir1 = Vec2::new(self.width_and_height.x, 0.0) + Vec2::new(-self.rounding.x, self.rounding.y);
-			let cir2 = self.rounding;
-			let cir3 = Vec2::new(0.0, self.width_and_height.y) + Vec2::new(self.rounding.x, -self.rounding.y);
-			let cir4 = self.width_and_height - self.rounding;
-			let points: Vec<Vec2> = (0..=sample_points).into_par_iter().map(|sample| {
-				let t = sample as f32 / sample_points as f32;
-				if t <= 0.25 {
-					let point = sample_cir(t, self.rounding, cir1);
-					point
-				}else if t <= 0.5 {
-					let point = sample_cir(t, self.rounding, cir2);
-					point
-				}else if t <= 0.75 {
-					let point = sample_cir(t, self.rounding, cir3);
-					point
-				}else {
-					let point = sample_cir(t, self.rounding, cir4);
-					point
-				}
-			}).collect();
-			let polygon: Polygon = points.into();
-			polygon
-		}else {
-			Polygon {
-				points: vec!(Vec2::same(0.0), 
-					Vec2::new(0.0, self.width_and_height.y),
-					self.width_and_height,
-					Vec2::new(self.width_and_height.x, 0.0),
-					),
-				..Default::default()
-			}
-		}
-	}
+	fn into_vertexs(&self, _: &Style, _: Vec2) -> (Vec<Vertex>, Vec<u32>) { todo!() }
 }
 
 impl Animate for Rect {
@@ -603,13 +576,13 @@ impl Shape for Text {
 				x[(line - 1.0) as usize] = x[(line - 1.0) as usize] + width;
 			}
 		};
-		Area::new(Vec2::ZERO, Vec2::new(*x.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap(), em * line)).transfrom(style)
+		Area::new(Vec2::ZERO, Vec2::new(*x.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap(), em * line)).transform(style)
 	}
 
 	fn delta(&self, _: &Self) -> Self { self.clone() }
 	fn change(&mut self, _: &Self) {}
 	#[cfg(feature = "vertexs")]
-	fn into_polygon(&self, _: usize) -> Polygon { Polygon::new() }
+	fn into_vertexs(&self, _: &Style, _: Vec2) -> (Vec<Vertex>, Vec<u32>) { todo!() }
 }
 
 impl Animate for Text {
@@ -702,7 +675,7 @@ impl Shape for CubicBezier {
 			},
 		);
 
-		Area::new(Vec2::new(min_x, min_y), Vec2::new(max_x, max_y)).transfrom(style)
+		Area::new(Vec2::new(min_x, min_y), Vec2::new(max_x, max_y)).transform(style)
 	}
 
 	fn delta(&self, rhs: &Self) -> Self {
@@ -728,14 +701,7 @@ impl Shape for CubicBezier {
 	}
 
 	#[cfg(feature = "vertexs")]
-	fn into_polygon(&self, sample_points: usize) -> Polygon {
-		let points: Vec<Vec2> = (0..sample_points).into_par_iter().map(|sample| {
-			let t = sample as f32 / sample_points as f32;
-			self.sample(t)
-		}).collect();
-		let polygon: Polygon = points.into();
-		polygon
-	}
+	fn into_vertexs(&self, _: &Style, _: Vec2) -> (Vec<Vertex>, Vec<u32>) { todo!() }
 }
 
 
@@ -815,7 +781,7 @@ impl Shape for Svg {
 	fn delta(&self, _: &Self) -> Self { self.clone() }
 	fn change(&mut self, _: &Self) {}
 	#[cfg(feature = "vertexs")]
-	fn into_polygon(&self, _: usize) -> Polygon { Polygon::new() }
+	fn into_vertexs(&self, _: &Style, _: Vec2) -> (Vec<Vertex>, Vec<u32>) { todo!() }
 }
 
 impl Animate for Svg {}
@@ -838,7 +804,7 @@ impl Shape for Image {
 	fn delta(&self, _: &Self) -> Self { todo!() }
 	fn change(&mut self, _: &Self) { todo!() }
 	#[cfg(feature = "vertexs")]
-	fn into_polygon(&self, _: usize) -> Polygon { Polygon::new() }
+	fn into_vertexs(&self, _: &Style, _: Vec2) -> (Vec<Vertex>, Vec<u32>) { todo!() }
 }
 
 impl Animate for Image {}
@@ -925,76 +891,12 @@ impl Shape for Polygon {
 				max.y = point.y
 			}
 		}
-		Area::new(min, max).transfrom(style)
+		Area::new(min, max).transform(style)
 	}
 	fn delta(&self, _: &Self) -> Self { todo!() }
 	fn change(&mut self, _: &Self) { todo!() }
 	#[cfg(feature = "vertexs")]
-	fn into_polygon(&self, _: usize) -> Polygon { self.clone() }
-	#[cfg(feature = "vertexs")]
-	fn into_vertexs(&self, style: &Style, size: Vec2, index: u32) -> (Vec<Vertex>, Vec<u32>) {
-		let mut vertexs = vec!();
-		let mut indices: Vec<u32> = vec!(); 
-
-		if style.stroke_width > 0.0 && style.stroke_color[3] != 0 {
-			let mut stroke_polygon = Polygon::new();
-			for point_id in 0..self.points.len() {
-				let delta = self.points[(point_id + 1) % self.points.len()] - self.points[point_id];
-				let mut stroke = delta.line(style.stroke_width);
-				let position = self.points[point_id].clone();
-				stroke_polygon.append_with_process(&mut stroke, move |inside| {
-					inside + position
-				})
-			}
-
-			let mut stroke_vertexs: Vec<Vertex> = stroke_polygon.points.clone().into_par_iter().map(|point| {
-				let pt;
-				if self.is_styled {
-					pt = point
-				}else {
-					pt = (point + style.position).transfrom_with_center(style.rotate, style.size, style.transform_origin);
-				}
-				(Vec2::new(2.0 * pt.x / size.x - 1.0, -(2.0 * pt.y / size.y - 1.0)), style.stroke_color).into()
-			}).collect();
-			vertexs.append(&mut stroke_vertexs);
-
-			for indice in 0..self.len() {
-				let center = (stroke_polygon[4 * indice] + stroke_polygon[4 * indice + 1] + stroke_polygon[4 * indice + 2] + stroke_polygon[4 * indice + 3]) / 4.0;
-				let mut sub_polygon = [4 * indice, 4 * indice + 1, 4 * indice + 2, 4 * indice + 3];
-				sub_polygon.sort_by(|b, a| (stroke_polygon[*a] - center).angle().partial_cmp(&(stroke_polygon[*b] - center).angle()).unwrap());
-				indices.push((sub_polygon[0]) as u32 + index);
-				indices.push((sub_polygon[1]) as u32 + index);
-				indices.push((sub_polygon[2]) as u32 + index);
-				indices.push((sub_polygon[0]) as u32 + index);
-				indices.push((sub_polygon[2]) as u32 + index);
-				indices.push((sub_polygon[3]) as u32 + index);
-			}
-		}
-
-		let mut shape_vertexs: Vec<Vertex> = self.points.clone().into_par_iter().map(|point| {
-			let pt;
-			if self.is_styled {
-				pt = point
-			}else {
-				pt = (point + style.position).transfrom_with_center(style.rotate, style.size, style.transform_origin);
-			}
-			(Vec2::new(2.0 * pt.x / size.x - 1.0, -(2.0 * pt.y / size.y - 1.0)), style.fill).into()
-		}).collect();
-		let shape_vertexs_len = shape_vertexs.len();
-		vertexs.append(&mut shape_vertexs);
-		let len = if style.stroke_width > 0.0 && style.stroke_color[3] != 0 {
-			self.len() as u32 * 4
-		}else {
-			0
-		};
-		for indice in 2..shape_vertexs_len {
-			indices.push(len + index);
-			indices.push((indice - 1) as u32 + index + len);
-			indices.push(indice as u32 + index + len);
-		};
-
-		(vertexs, indices)
-	}
+	fn into_vertexs(&self, _: &Style, _: Vec2) -> (Vec<Vertex>, Vec<u32>) { todo!() }
 }
 
 impl Polygon {

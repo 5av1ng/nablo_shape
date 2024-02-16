@@ -1,5 +1,7 @@
 //! Provid some basic object like [`Vec2`](stands for a 2 dimentional Vector).
 
+#[cfg(feature = "vertexs")]
+use crate::prelude::shape_elements::Vertex;
 use std::ops::Neg;
 use crate::shape::shape_elements::Polygon;
 use crate::shape::shape_elements::Animate;
@@ -26,6 +28,7 @@ use core::ops::Add;
 /// assert_eq!(c, Vec2::new(4.,6.));
 /// ```
 #[derive(serde::Deserialize, serde::Serialize, Clone, Debug, PartialEq, Default, Copy)]
+#[serde(default)]
 pub struct Vec2 {
 	/// follows svg cartesian.
 	pub x: f32,
@@ -68,6 +71,22 @@ impl Vec2 {
 		Self {
 			x: input,
 			y: input
+		}
+	}
+
+	/// Get a new [`Vec2`] with x value and y = 0.0.
+	pub fn x(input: f32) -> Self {
+		Self {
+			x: input,
+			y: 0.0
+		}
+	}
+
+	/// Get a new [`Vec2`] with y value and x = 0.0.
+	pub fn y(input: f32) -> Self {
+		Self {
+			y: input,
+			x: 0.0
 		}
 	}
 
@@ -192,11 +211,7 @@ impl Shape for Vec2 {
 	}
 
 	#[cfg(feature = "vertexs")]
-	fn into_polygon(&self, _: usize) -> Polygon {
-		// TODO: make this changable
-		let stroke_width = 5.0;
-		self.line(stroke_width)
-	}
+	fn into_vertexs(&self, _: &Style, _: Vec2) -> (Vec<Vertex>, Vec<u32>) { todo!() }
 
 	fn get_area(&self, style: &Style) -> Area {
 		[style.position.rotate_with_center(style.rotate, style.transform_origin).scale_with_center(style.size, style.transform_origin) , 
@@ -542,14 +557,14 @@ impl Area {
 	}
 
 	/// transform a [`Area`] with given [`Style`]
-	pub fn transfrom(self, style: &Style) -> Self {
+	pub fn transform(self, style: &Style) -> Self {
 		let points = [self.left_top(), self.left_bottom(), self.right_top(), self.right_bottom()];
 		let points: Vec<Vec2> = points.into_iter().map(|point| {
-			point.transfrom_with_center(style.rotate,style.size, style.transform_origin)
+			point.transfrom_with_center(style.rotate, style.size, style.transform_origin)
 		}).collect();
 		let mut min = Vec2::same(f32::INFINITY);
 		let mut max = Vec2::same(f32::NEG_INFINITY);
-		for point in points {
+		for point in &points {
 			if point.x < min.x {
 				min.x = point.x
 			}
@@ -559,11 +574,11 @@ impl Area {
 			if point.x > max.x {
 				max.x = point.x
 			}
-			if point.y >max.y {
+			if point.y > max.y {
 				max.y = point.y
 			}
 		}
-		[min + style.position, max + style.position].into()
+		Area::new(min + style.position, max + style.position)
 	}
 
 	/// move a area to a new place
