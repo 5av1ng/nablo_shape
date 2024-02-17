@@ -5,6 +5,7 @@
 
 // use once_cell::sync::Lazy;
 // use fontdue::Font;
+use serde::*;
 use std::ops::Mul;
 use crate::prelude::ShapeMask;
 use std::ops::IndexMut;
@@ -91,6 +92,7 @@ pub struct Style {
 	pub stroke_width: f32,
 	/// stands for rgba, id = 12, 13, 14 or 15 represents ```fill[0]``` ```fill[1]``` ```fill[2]``` or ```fill[3]```.
 	pub stroke_color: Color,
+	#[serde(skip)]
 	/// where should we draw?
 	pub layer: Layer,
 	/// you only need to show shapes inside this clip
@@ -137,7 +139,36 @@ impl Layer {
 /// stands for r g b a unpremulitiplied.
 #[derive(PartialEq, Clone, Debug, serde::Deserialize, serde::Serialize, Copy)]
 pub struct Color {
+	#[serde(serialize_with = "serialize_color")]
+	#[serde(deserialize_with = "deserialize_color")]
 	pub color: [u8; 4]
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+struct ColorDetailed {
+	r: u8,
+	g: u8,
+	b: u8,
+	a: u8,
+}
+
+fn serialize_color<S>(input: &[u8; 4], serializer: S) -> Result<S::Ok, S::Error> 
+	where S: Serializer 
+{
+	let input = ColorDetailed {
+		r: input[0],
+		g: input[1],
+		b: input[2],
+		a: input[3],
+	};
+	input.serialize(serializer)
+}
+
+fn deserialize_color<'de, D>(deserializer: D) -> Result<[u8; 4], D::Error> 
+	where D: Deserializer<'de>
+{
+	let de = ColorDetailed::deserialize(deserializer)?;
+	Ok([de.r, de.g, de.b, de.a])
 }
 
 impl From<[u8; 4]> for Color {

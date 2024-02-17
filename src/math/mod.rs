@@ -2,6 +2,7 @@
 
 #[cfg(feature = "vertexs")]
 use crate::prelude::shape_elements::Vertex;
+use serde::*;
 use std::ops::Neg;
 use crate::shape::shape_elements::Polygon;
 use crate::shape::shape_elements::Animate;
@@ -335,7 +336,32 @@ impl From<[usize; 2]> for Vec2 {
 #[derive(serde::Deserialize, serde::Serialize, Clone, Debug, PartialEq, Default, Copy)]
 /// A simple 2 dimentional rectangle area usually stands for bounding box.
 pub struct Area {
+	#[serde(serialize_with = "serialize_area")]
+	#[serde(deserialize_with = "deserialize_area")]
 	pub area: [Vec2; 2]
+}
+
+fn serialize_area<S>(input: &[Vec2; 2], serializer: S) -> Result<S::Ok, S::Error> 
+	where S: Serializer 
+{
+	let input = AreaInner {
+		min: input[0],
+		max: input[1]
+	};
+	input.serialize(serializer)
+}
+
+fn deserialize_area<'de, D>(deserializer: D) -> Result<[Vec2; 2], D::Error> 
+	where D: Deserializer<'de>
+{
+	let de = AreaInner::deserialize(deserializer)?;
+	Ok([de.min, de.max])
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+struct AreaInner {
+	min: Vec2,
+	max: Vec2
 }
 
 impl Into<Area> for [Vec2; 2] {
