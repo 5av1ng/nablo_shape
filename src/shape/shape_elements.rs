@@ -1,10 +1,11 @@
 //! Provid some basic elements for shape.
 //!
 //! You can use your shape by adding the [`Shape`] trait.
-//! Or just using [`Svg`] to print your svg with out animation.
+//! Or just using [`Svg`] to print your svg with out animation.4
 
-// use once_cell::sync::Lazy;
-// use fontdue::Font;
+use std::sync::Arc;
+use once_cell::sync::Lazy;
+use fontdue::Font;
 use serde::*;
 use std::ops::Mul;
 use crate::prelude::ShapeMask;
@@ -18,18 +19,77 @@ use std::fmt::Debug;
 use crate::math::Vec2;
 use rayon::prelude::*;
 
+cfg_if::cfg_if! { 
+	if #[cfg(feature = "vertexs")] {
+		use lyon::math::Point;
+		use lyon::math::point;
+		use lyon::path::*;
+		use lyon::geom::*;
+		use lyon::tessellation::*;
+
+		impl Vec2 {
+			pub(crate) fn to_point(self) -> Point {
+				point(self.x, self.y)
+			}
+		}
+
+		pub(crate) fn convert_path(input: Path, style: &Style, size: Vec2) -> (Vec<Vertex>, Vec<u32>, Area) {
+			let clip = style.clip.clone();
+
+			let transform = Transform::identity()
+				.then_translate(Vector::new(style.position.x, style.position.y))
+				.then_translate(Vector::new(-style.transform_origin.x, -style.transform_origin.y))
+				.then_rotate(Angle { radians: style.rotate })
+				.then_scale(style.size.x, style.size.y)
+				.then_translate(Vector::new(style.transform_origin.x, style.transform_origin.y));
+			let input = input.transformed(&transform);
+
+			// let path = pb.build();
+			let path = input;
+			let mut geometry: VertexBuffers<Vertex, u32> = VertexBuffers::new();
+			let mut tessellator = FillTessellator::new();
+			{
+				let _ = tessellator.tessellate_path(&path, &FillOptions::tolerance(0.05), &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| {
+					Vertex {
+						position: [vertex.position().x, vertex.position().y, 0.0],
+						color: style.fill.normalized()
+					}
+				}));
+			}
+			if style.stroke_width > 0.0 && style.stroke_color[3] != 0 {
+				let mut tessellator = StrokeTessellator::new();
+				{
+					let _ = tessellator.tessellate_path(&path, &StrokeOptions::tolerance(0.05).with_line_width(style.stroke_width), &mut BuffersBuilder::new(&mut geometry, |vertex: StrokeVertex| {
+						Vertex {
+							position: [vertex.position().x, vertex.position().y, 0.0],
+							color: style.stroke_color.normalized()
+						}
+					}));
+				}
+			}
+			(geometry.vertices.into_par_iter().map(|inner| Vertex {
+				position: [inner.position[0] / size.x * 2.0 - 1.0, - (inner.position[1] / size.y * 2.0 - 1.0), 0.0],
+				..inner
+			}).collect(), geometry.indices, Area::new((clip.area[0] / size * 2.0) - Vec2::same(1.0), (clip.area[1] / size * 2.0) - Vec2::same(1.0)))
+		}
+	}
+}
+
 /// refer to css.
 pub const EM: f32 = 16.0;
-/// TODO: font change support
-// static FONT: Lazy<Font> = Lazy::new(|| {fontdue::Font::from_bytes(include_bytes!("../../font.ttf") as &[u8], Default::default()).expect("loading font failed")});
+/// for text usage
+pub const CORRECTION: f32 = 1.0;
+/// the default font
+pub const DEFAULT_FONT: &[u8; 5470824] = include_bytes!("../../font.ttf");
+static FONT: Lazy<Arc<Font>> = Lazy::new(|| {Arc::new(fontdue::Font::from_bytes(DEFAULT_FONT as &[u8], Default::default()).expect("loading font failed"))});
 
 /// a trait for a shape
 pub trait Shape: Default + Clone + Debug + PartialEq + Animate {
 	/// for some reason, we will process shape as svg.
 	fn into_svg(&self, style: &Style) -> String;
-	/// translate a shape to vertexs
+	/// translate a shape to vertexs, requires current window size, out put x in [-1.0, 1.0], y in [-1.0, 1.0], z = 0.0, uncut, contains where you should cut, normalized.
 	#[cfg(feature = "vertexs")]
-	fn into_vertexs(&self, style: &Style, size: Vec2) -> (Vec<Vertex>, Vec<u32>);
+	fn into_vertexs(&self, style: &Style, size: Vec2) -> (Vec<Vertex>, Vec<u32>, Area);
 	/// For UI framework to ensure where the shape is(using top left point and bottom right point to stand for a rectangle).
 	fn get_area(&self, style: &Style) -> Area;
 	/// tell what have changed which you want be changed in mulitiselection to shapoist.
@@ -120,6 +180,19 @@ impl Layer {
 			Self::Foreground => 3,
 			Self::ToolTips => 4,
 			Self::Debug => 5
+		}
+	}
+
+	/// get layer id, panics when id > 5
+	pub fn from_id(id: usize) -> Self {
+		match id {
+			0 => Self::Background,
+			1 => Self::Bottom,
+			2 => Self::Middle,
+			3 => Self::Foreground,
+			4 => Self::ToolTips,
+			5 => Self::Debug,
+			_ => panic!("unavailable layer id"),
 		}
 	}
 
@@ -462,7 +535,11 @@ impl Shape for Circle {
 	}
 
 	#[cfg(feature = "vertexs")]
-	fn into_vertexs(&self, _: &Style, _: Vec2) -> (Vec<Vertex>, Vec<u32>) { todo!() }
+	fn into_vertexs(&self, style: &Style, size: Vec2) -> (Vec<Vertex>, Vec<u32>, Area) {
+		let mut pb = Path::builder();
+		pb.add_circle(point(self.radius, self.radius), self.radius, Winding::Negative);
+		convert_path(pb.build(), style, size)
+	}
 }
 
 impl Animate for Circle {
@@ -522,7 +599,36 @@ impl Shape for Rect {
 	}
 
 	#[cfg(feature = "vertexs")]
-	fn into_vertexs(&self, _: &Style, _: Vec2) -> (Vec<Vertex>, Vec<u32>) { todo!() }
+	fn into_vertexs(&self, style: &Style, size: Vec2) -> (Vec<Vertex>, Vec<u32>, Area) {
+		let mut pb = Path::builder();
+		if self.rounding == Vec2::ZERO {
+			pb.add_rectangle(&Box2D { min: point(0.0, 0.0), max: point(self.width_and_height.x, self.width_and_height.y) }, Winding::Negative);
+		}else {
+			let magic_number = 4.0 / 3.0 * (2.0_f32.sqrt() - 1.0);
+			pb.begin(point(self.width_and_height.x, self.width_and_height.y - self.rounding.y));
+			pb.cubic_bezier_to(point(self.width_and_height.x, self.width_and_height.y + (magic_number - 1.0) * self.rounding.y),
+				point(self.width_and_height.x + (magic_number - 1.0) * self.rounding.x, self.width_and_height.y),
+				point(self.width_and_height.x - self.rounding.x, self.width_and_height.y));
+
+			pb.line_to(point(self.rounding.x, self.width_and_height.y));
+			pb.cubic_bezier_to(point((1.0 - magic_number) * self.rounding.x, self.width_and_height.y),
+				point(0.0, self.width_and_height.y + (magic_number - 1.0) *self.rounding.y),
+				point(0.0, self.width_and_height.y - self.rounding.y));
+
+			pb.line_to(point(0.0, self.rounding.y));
+			pb.cubic_bezier_to(point(0.0, (1.0 - magic_number) * self.rounding.y),
+				point((1.0 - magic_number) * self.rounding.x, 0.0),
+				point(self.rounding.x, 0.0));
+
+			pb.line_to(point(self.width_and_height.x - self.rounding.x, 0.0));
+			pb.cubic_bezier_to(point(self.width_and_height.x + (magic_number - 1.0) * self.rounding.x, 0.0),
+				point(self.width_and_height.x, (1.0 - magic_number) * self.rounding.y),
+				point(self.width_and_height.x, self.rounding.y));
+			pb.line_to(point(self.width_and_height.x, self.width_and_height.y - self.rounding.y));
+			pb.close();
+		}
+		convert_path(pb.build(), style, size)
+	}
 }
 
 impl Animate for Rect {
@@ -589,23 +695,20 @@ impl Shape for Text {
 
 	fn get_area(&self, style: &Style) -> Area {
 		// since we haven't provid font change functions, this would not associated with font.
-		let em = EM * style.size.len() / 2.0_f32.sqrt();
+		let em = EM * style.size.len() / 2.0_f32.sqrt() * CORRECTION;
 		let mut x = vec!(0.0);
-		let mut line = 1.0;
-		for i in 0..utf8_slice::len(&self.text) {
-			let width;
-			let text = utf8_slice::slice(&self.text, i, i + 1).chars().next().unwrap();
-			if (text >= '一' && text <= '龥') || text == '●'  {
-				width = em * 0.8 * 1.5;
-			}else {
-				width = em * 0.8;
-			};
-			if text == '\n' {
-				line = line + 1.0;
-				x.push(0.0);
-			}else {
-				x[(line - 1.0) as usize] = x[(line - 1.0) as usize] + width;
+		let mut line = 0.0;
+		let fonts = &[FONT.clone()];
+		for inner in self.text.split("\n") {
+			let mut layout = fontdue::layout::Layout::new(fontdue::layout::CoordinateSystem::PositiveYDown);
+			layout.reset(&Default::default());
+			layout.append(fonts, &fontdue::layout::TextStyle::new(inner, em, 0));
+			let glyphs = layout.glyphs();
+			if glyphs.len() > 0 {
+				x[line as usize] = x[line as usize] + glyphs[glyphs.len() - 1].x + glyphs[glyphs.len() - 1].width as f32 - 0.25;
 			}
+			x.push(0.0);
+			line = line + 1.0;
 		};
 		Area::new(Vec2::ZERO, Vec2::new(*x.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap(), em * line)).transform(style)
 	}
@@ -613,7 +716,7 @@ impl Shape for Text {
 	fn delta(&self, _: &Self) -> Self { self.clone() }
 	fn change(&mut self, _: &Self) {}
 	#[cfg(feature = "vertexs")]
-	fn into_vertexs(&self, _: &Style, _: Vec2) -> (Vec<Vertex>, Vec<u32>) { todo!() }
+	fn into_vertexs(&self, _: &Style, _: Vec2) -> (Vec<Vertex>, Vec<u32>, Area) { todo!() }
 }
 
 impl Animate for Text {
@@ -732,7 +835,13 @@ impl Shape for CubicBezier {
 	}
 
 	#[cfg(feature = "vertexs")]
-	fn into_vertexs(&self, _: &Style, _: Vec2) -> (Vec<Vertex>, Vec<u32>) { todo!() }
+	fn into_vertexs(&self, style: &Style, size: Vec2) -> (Vec<Vertex>, Vec<u32>, Area) {
+		let mut pb = Path::builder();
+		pb.begin(self.points[0].to_point());
+		pb.cubic_bezier_to(self.points[1].to_point(), self.points[2].to_point(), self.points[3].to_point());
+		pb.end(self.if_close);
+		convert_path(pb.build(), style, size)
+	}
 }
 
 
@@ -812,7 +921,7 @@ impl Shape for Svg {
 	fn delta(&self, _: &Self) -> Self { self.clone() }
 	fn change(&mut self, _: &Self) {}
 	#[cfg(feature = "vertexs")]
-	fn into_vertexs(&self, _: &Style, _: Vec2) -> (Vec<Vertex>, Vec<u32>) { todo!() }
+	fn into_vertexs(&self, _: &Style, _: Vec2) -> (Vec<Vertex>, Vec<u32>, Area) { todo!() }
 }
 
 impl Animate for Svg {}
@@ -835,7 +944,7 @@ impl Shape for Image {
 	fn delta(&self, _: &Self) -> Self { todo!() }
 	fn change(&mut self, _: &Self) { todo!() }
 	#[cfg(feature = "vertexs")]
-	fn into_vertexs(&self, _: &Style, _: Vec2) -> (Vec<Vertex>, Vec<u32>) { todo!() }
+	fn into_vertexs(&self, _: &Style, _: Vec2) -> (Vec<Vertex>, Vec<u32>, Area) { todo!() }
 }
 
 impl Animate for Image {}
@@ -927,7 +1036,20 @@ impl Shape for Polygon {
 	fn delta(&self, _: &Self) -> Self { todo!() }
 	fn change(&mut self, _: &Self) { todo!() }
 	#[cfg(feature = "vertexs")]
-	fn into_vertexs(&self, _: &Style, _: Vec2) -> (Vec<Vertex>, Vec<u32>) { todo!() }
+	fn into_vertexs(&self, style: &Style, size: Vec2) -> (Vec<Vertex>, Vec<u32>, Area) {
+		let mut pb = Path::builder();
+		let mut started = false;
+		for point in &self.points {
+			if !started {
+				pb.begin(point.to_point());
+				started = true;
+				continue;
+			}
+			pb.line_to(point.to_point());
+		}
+		pb.close();
+		convert_path(pb.build(), style, size)
+	}
 }
 
 impl Polygon {

@@ -1,6 +1,10 @@
 //! Provid some basic object like [`Vec2`](stands for a 2 dimentional Vector).
 
 #[cfg(feature = "vertexs")]
+use crate::prelude::shape_elements::convert_path;
+#[cfg(feature = "vertexs")]
+use lyon::path::Path;
+#[cfg(feature = "vertexs")]
 use crate::prelude::shape_elements::Vertex;
 use serde::*;
 use std::ops::Neg;
@@ -212,7 +216,13 @@ impl Shape for Vec2 {
 	}
 
 	#[cfg(feature = "vertexs")]
-	fn into_vertexs(&self, _: &Style, _: Vec2) -> (Vec<Vertex>, Vec<u32>) { todo!() }
+	fn into_vertexs(&self, style: &Style, size: Vec2) -> (Vec<Vertex>, Vec<u32>, Area) {
+		let mut pb = Path::builder();
+		pb.begin(Vec2::ZERO.to_point());
+		pb.line_to(self.to_point());
+		pb.end(false);
+		convert_path(pb.build(), style, size)
+	}
 
 	fn get_area(&self, style: &Style) -> Area {
 		[style.position.rotate_with_center(style.rotate, style.transform_origin).scale_with_center(style.size, style.transform_origin) , 
@@ -443,6 +453,11 @@ impl Area {
 		(self.area[1] + self.area[0]) / 2.0
 	}
 
+	/// get four conner of a area
+	pub fn points(&self) -> Vec<Vec2> {
+		vec!(self.left_top(), self.left_bottom(), self.right_bottom(), self.right_top())
+	}
+
 	/// get the width and height of this area
 	pub fn width_and_height(&self) -> Vec2 {
 		self.area[1] - self.area[0]
@@ -483,7 +498,11 @@ impl Area {
 		self.is_point_inside(&other.left_top()) | 
 		self.is_point_inside(&other.right_top()) |
 		self.is_point_inside(&other.left_bottom()) |
-		self.is_point_inside(&other.right_bottom()) 
+		self.is_point_inside(&other.right_bottom()) | 
+		other.is_point_inside(&self.left_top()) | 
+		other.is_point_inside(&self.right_top()) |
+		other.is_point_inside(&self.left_bottom()) |
+		other.is_point_inside(&self.right_bottom()) 
 	}
 
 	/// find cross part of a area, returns [`Area::ZERO`] if not have cross part

@@ -2,8 +2,6 @@
 pub mod shape_elements;
 pub mod animation;
 
-#[cfg(feature = "vertexs")]
-use rayon::prelude::*;
 use std::ops::IndexMut;
 use std::ops::Index;
 use crate::math::Area;
@@ -53,7 +51,6 @@ pub struct Painter {
 	pub offset: Vec2,
 	shapes: Vec<Shape>,
 	style: Style,
-	is_cut: bool,
 	text_style: TextStyle
 }
 
@@ -76,7 +73,6 @@ impl Default for Painter {
 			shapes: vec!(),
 			style: Style::default(),
 			paint_area: Area::default(),
-			is_cut: true,
 			offset: Vec2::same(0.0),
 			text_style: TextStyle::default()
 		}
@@ -154,80 +150,6 @@ impl Painter {
 		self.text_style = text_style;
 	}
 
-	#[cfg(feature = "vertexs")]
-	/// draw a given shape, returns drawn text index.
-	///
-	/// note: `nablo` will not paint a shape outside `paint_area` and will automaticly cut the shape.
-	/// the returing shape may be a [`Polygon`] due to automatic cutting.
-	/// if a shape is outside of the `paint_area` or completely inside the `paint_area` this function still return the shape you paint.
-	/// to disable automatic cutting call [`Self::automatic_cut`].
-	///
-	/// note: will return [`Option::None`] if the shape is not paint(eg. outside the draw rect or cant visible)
-	pub fn draw(&mut self, shape: ShapeElement) -> Option<usize> {
-		let shape = Shape {
-			style: self.style.clone(),
-			shape,
-			..Default::default()
-		};
-
-		if (shape.style.fill[3] == 0) && (shape.style.stroke_color[3] == 0 || shape.style.stroke_width == 0.0) {
-			return None
-		}
-
-		// if self.paint_area.is_inside(&shape.get_area()) {
-		// 	self.shapes.push(shape)
-		// }else if self.paint_area.is_cross(&shape.get_area()) && self.is_cut {
-		// 	let mut polygon = shape.into_polygon();
-		// 	polygon.style(&self.style);
-		// 	let mut points: Vec<Vec2> = (0..polygon.len()).into_par_iter().filter_map(|point_id| {
-		// 		let id1 = point_id;
-		// 		let id2 = (point_id + 1) % polygon.len();
-		// 		let cross = self.paint_area.find_cross(&polygon[id1], &polygon[id2]);
-		// 		if let Some(t) = cross {
-		// 			return Some(t)
-		// 		}
-		// 		if self.paint_area.is_point_inside(&polygon[id2]) {
-		// 			return Some(polygon[id2])
-		// 		}
-		// 		None
-		// 	}).collect();
-		// 	let area_points = [self.paint_area.left_top(), self.paint_area.left_bottom(), self.paint_area.right_bottom(), self.paint_area.right_top()];
-		// 	for area_point in area_points {
-		// 		if polygon.is_point_inside(area_point) {
-		// 			points.push(area_point)
-		// 		}
-		// 	}
-		// 	let mut points = Polygon {
-		// 		points,
-		// 		is_styled: true,
-		// 	};
-		// 	points.sort();
-		// 	let shape = Shape {
-		// 		style: self.style.clone(),
-		// 		shape: ShapeElement::Polygon(points), 
-		// 		..Default::default()
-		// 	};
-		// 	self.shapes.push(shape);
-		// }else if shape.into_polygon().is_point_inside(self.paint_area.left_top()) && self.is_cut {
-		// 	let shape = Shape {
-		// 		style: self.style.clone(),
-		// 		shape: ShapeElement::Rect(Rect {
-		// 			width_and_height: Vec2::new(self.paint_area.width(), self.paint_area.height()),
-		// 			..Default::default()
-		// 		}),
-		// 		..Default::default()
-		// 	};
-		// 	self.shapes.push(shape);
-		// }else {
-		// 	return None
-		// }
-
-		self.shapes.push(shape);
-		let len = self.shapes.len();
-		Some(len - 1)
-	}
-
-	#[cfg(not(feature = "vertexs"))]
 	/// draw a given shape
 	///
 	/// note: will return [`Option::None`] if the shape is not paint(eg. outside the draw rect or cant visible)
@@ -254,12 +176,6 @@ impl Painter {
 
 		let len = self.shapes.len();
 		Some(len - 1)
-	}
-
-	#[cfg(feature = "vertexs")]
-	/// turn on/off the automatic cutting, false for off.
-	pub fn automatic_cut(&mut self, is_cut: bool) {
-		self.is_cut = is_cut;
 	}
 
 	/// draw a line. see more in [`Self::draw`]
@@ -543,10 +459,30 @@ impl Default for ShapeElement {
 	}
 }
 
+impl ShapeMask {
+	/// convert a shape into vertexs
+	#[cfg(feature = "vertexs")]
+	pub fn into_vertexs(&self, size: Vec2, style: &Style) -> (Vec<Vertex>, Vec<u32>, Area) {
+		match &self {
+			ShapeMask::Circle(t) => {
+				t.into_vertexs(style, size)
+			},
+			ShapeMask::Rect(t) => {
+				t.into_vertexs(style, size)
+			},
+			ShapeMask::CubicBezier(t) => {
+				t.into_vertexs(style, size)
+			},
+			ShapeMask::Polygon(t) => t.into_vertexs(style, size),
+			ShapeMask::Line(t) => t.into_vertexs(style, size),
+		}
+	}
+}
+
 impl Shape {
 	/// convert a shape into vertexs
 	#[cfg(feature = "vertexs")]
-	pub fn into_vertexs(&self, size: Vec2) -> (Vec<Vertex>, Vec<u32>) {
+	pub fn into_vertexs(&self, size: Vec2) -> (Vec<Vertex>, Vec<u32>, Area) {
 		match &self.shape {
 			ShapeElement::Circle(t) => {
 				t.into_vertexs(&self.style, size)
@@ -560,6 +496,7 @@ impl Shape {
 			ShapeElement::Polygon(t) => t.into_vertexs(&self.style, size),
 			ShapeElement::Text(_) => unreachable!(),
 			ShapeElement::Image(_) => unreachable!(),
+			ShapeElement::Line(t) => t.into_vertexs(&self.style, size),
 		}
 	}
 
