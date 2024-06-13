@@ -108,6 +108,7 @@ impl Animation {
 	}
 
 	/// get how long the animation sustains
+	#[inline]
 	pub fn len(&self) -> Duration {
 		let mut total = Duration::ZERO;
 		for a in &self.linkers {
@@ -116,7 +117,20 @@ impl Animation {
 		total
 	}
 
+	/// get end time of the animatio
+	#[inline]
+	pub fn end_time(&self) -> Duration {
+		self.len() + self.start_time
+	}
+
+	/// check if current animation have same time with other 
+	#[inline]
+	pub fn is_cross(&self, other: &Animation) -> bool {
+		(self.end_time() >= other.start_time && self.start_time <= other.start_time) || (other.end_time() >= self.start_time && other.start_time <= self.start_time)
+	}
+
 	/// get absolute time of every linkers
+	#[inline]
 	pub fn stages(&self) -> Vec<Duration> {
 		let mut back = vec!(self.start_time);
 		let mut len = self.start_time;
@@ -128,12 +142,14 @@ impl Animation {
 	}
 
 	/// get how much linkers do this animation have
+	#[inline]
 	pub fn linkers_len(&self) -> usize {
 		self.linkers.len()
 	} 
 
 	/// check if this animation has no linker
-	pub fn is_constant(&self) -> bool {
+	#[inline]
+	pub fn is_empty(&self) -> bool {
 		self.linkers_len() == 0
 	}
 
@@ -189,9 +205,9 @@ impl Animation {
 		max
 	}
 
-	/// use absolute time to add a new point, will replace it when the differrnce between time and absolute time is lower than Duration::milliseconds(150)
+	/// use absolute time to add a new point, will replace it when the differrnce between time and absolute time is lower than Duration::milliseconds(1)
 	pub fn insert_point(&mut self, time: Duration, end_value: f32, linker: AnimationLinker) {
-		self.insert_point_with_epsilon(time, end_value, linker, Duration::milliseconds(150));
+		self.insert_point_with_epsilon(time, end_value, linker, Duration::milliseconds(1));
 	}
 
 	/// use absolute time to add a new point, will replace it when the differrnce between time and absolute time is lower than epsilon
@@ -229,7 +245,7 @@ impl Animation {
 
 		let mut last_time = self.start_time;
 		for i in 0..self.linkers.len() {
-			if (time - last_time).abs() <= self.linkers[i].sustain_time + epsilon {
+			if (time - last_time - self.linkers[i].sustain_time).abs() <= epsilon {
 				self.linkers[i].linker = linker;
 				if i + 1 < self.linkers.len() {
 					self.linkers[i + 1].sustain_time = last_time + self.linkers[i + 1].sustain_time + self.linkers[i].sustain_time - time;
@@ -287,6 +303,72 @@ impl Animation {
 				self.linkers.remove(id - 1);
 			}else {
 				self.linkers.pop();
+			}
+		}
+	}
+
+	/// combine two animations, will replace current animation with other animation's corresponding areas and leave other anmation empty, using linker if two animations have gaps.
+	pub fn combine(&mut self, other: &mut Animation, linker: AnimationLinker) {
+		if self.is_cross(other) {
+			if self.start_time > other.start_time { 
+				let mut linker_id = 0;
+				let mut last_stage = other.start_time;
+				for (i, stage) in other.stages().iter().enumerate() {
+					if *stage > self.start_time {
+						other.linkers[i] = Linker {
+							end_value: self.start_value,
+							sustain_time: self.start_time - last_stage,
+							linker,
+						};
+						linker_id = i;
+						break;
+					}
+					last_stage = *stage;
+				}
+				for linker in &self.linkers {
+					if let Some(t) = other.linkers.get_mut(linker_id) {
+						*t = linker.clone();
+					}else {
+						other.linkers.push(linker.clone());
+					}
+					linker_id += 1;
+				}
+				*self = other.clone();
+				other.linkers.clear();
+			}else {
+				let mut linker_id = 0;
+				let mut last_stage = self.start_time;
+				for (i, stage) in self.stages().iter().enumerate() {
+					if *stage > other.start_time {
+						self.linkers[i] = Linker {
+							end_value: other.start_value,
+							sustain_time: other.start_time - last_stage,
+							linker,
+						};
+						linker_id = i;
+						break;
+					}
+					last_stage = *stage;
+				}
+				for linker in &other.linkers {
+					if let Some(t) = self.linkers.get_mut(linker_id) {
+						*t = linker.clone();
+					}else {
+						self.linkers.push(linker.clone())
+					}
+					linker_id += 1;
+				}
+				other.linkers.clear();
+			}
+		}else {
+			if self.start_time > other.start_time {
+				other.insert_point(self.start_time - other.end_time(), self.start_value, linker);
+				other.linkers.append(&mut self.linkers);
+				*self = other.clone();
+				other.linkers.clear();
+			}else {
+				self.insert_point(other.start_time - self.end_time(),other.start_value ,linker);
+				self.linkers.append(&mut other.linkers);
 			}
 		}
 	}

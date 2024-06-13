@@ -39,7 +39,7 @@ cfg_if::cfg_if! {
 			let transform = Transform::identity()
 				.then_translate(Vector::new(style.position.x, style.position.y))
 				.then_translate(Vector::new(-style.transform_origin.x, -style.transform_origin.y))
-				.then_rotate(Angle { radians: style.rotate })
+				.then_rotate(Angle { radians: style.rotate / 180.0 * PI })
 				.then_scale(style.size.x, style.size.y)
 				.then_translate(Vector::new(style.transform_origin.x, style.transform_origin.y));
 			let input = input.transformed(&transform);
@@ -142,7 +142,7 @@ pub struct Style {
 	pub position: Vec2,
 	/// rotate and scale center, id = 2 or 3 represents transform_origin.x or transform_origin.y.
 	pub transform_origin: Vec2,
-	/// follows radian measure, id = 4 repensents this attribute.
+	/// follows angle measure, id = 4 repensents this attribute.
 	pub rotate: f32,
 	/// normally is [`crate::math::Vec2::NOT_TO_SCALE`]. Will **not** affect stroke width. id = 5 or 6 represents size.x or size.y.
 	pub size: Vec2,
@@ -843,8 +843,6 @@ impl Shape for CubicBezier {
 		convert_path(pb.build(), style, size)
 	}
 }
-
-
 
 impl Animate for CubicBezier {
 	fn animate(&mut self, id: usize, change_to: f32) {

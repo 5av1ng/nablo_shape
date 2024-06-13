@@ -1,9 +1,7 @@
 //! Provid some basic object like [`Vec2`](stands for a 2 dimentional Vector).
 
 #[cfg(feature = "vertexs")]
-use crate::prelude::shape_elements::convert_path;
-#[cfg(feature = "vertexs")]
-use lyon::path::Path;
+use crate::prelude::shape_elements::CubicBezier;
 #[cfg(feature = "vertexs")]
 use crate::prelude::shape_elements::Vertex;
 use serde::*;
@@ -217,11 +215,7 @@ impl Shape for Vec2 {
 
 	#[cfg(feature = "vertexs")]
 	fn into_vertexs(&self, style: &Style, size: Vec2) -> (Vec<Vertex>, Vec<u32>, Area) {
-		let mut pb = Path::builder();
-		pb.begin(Vec2::ZERO.to_point());
-		pb.line_to(self.to_point());
-		pb.end(false);
-		convert_path(pb.build(), style, size)
+		CubicBezier{ points: [Vec2::ZERO, Vec2::ZERO, *self, *self], if_close: false }.into_vertexs(style, size)
 	}
 
 	fn get_area(&self, style: &Style) -> Area {
@@ -418,6 +412,30 @@ impl Area {
 		self.area[1].y >= point.y
 	}
 
+	/// get a area that contains sometion
+	pub fn abs(self) -> Self {
+		let [point1, point2] = self.area;
+		let mut max = Vec2::same(0.0);
+		let mut min = Vec2::same(0.0);
+		if point1.x > point2.x {
+			max.x = point1.x;
+			min.x = point2.x;
+		}else {
+			min.x = point1.x;
+			max.x = point2.x;
+		}
+		if point1.y > point2.y {
+			max.y = point1.y;
+			min.y = point2.y;
+		}else {
+			min.y = point1.y;
+			max.y = point2.y;
+		}
+		Self {
+			area: [min, max]
+		}
+	}
+
 	/// get the width of this area
 	pub fn width(&self) -> f32 {
 		(self.area[1].x - self.area[0].x).abs()
@@ -465,24 +483,28 @@ impl Area {
 
 	/// get a new area, will sort two [`Vec2`] by coordinates
 	pub fn new(point1: Vec2, point2: Vec2) -> Self {
-		let mut max = Vec2::same(0.0);
-		let mut min = Vec2::same(0.0);
-		if point1.x > point2.x {
-			max.x = point1.x;
-			min.x = point2.x;
-		}else {
-			min.x = point1.x;
-			max.x = point2.x;
-		}
-		if point1.y > point2.y {
-			max.y = point1.y;
-			min.y = point2.y;
-		}else {
-			min.y = point1.y;
-			max.y = point2.y;
-		}
+		// let mut max = Vec2::same(0.0);
+		// let mut min = Vec2::same(0.0);
+		// if point1.x > point2.x {
+		// 	max.x = point1.x;
+		// 	min.x = point2.x;
+		// }else {
+		// 	min.x = point1.x;
+		// 	max.x = point2.x;
+		// }
+		// if point1.y > point2.y {
+		// 	max.y = point1.y;
+		// 	min.y = point2.y;
+		// }else {
+		// 	min.y = point1.y;
+		// 	max.y = point2.y;
+		// }
+		// Self {
+		// 	area: [min, max]
+		// }
+
 		Self {
-			area: [min, max]
+			area: [point1, point2]
 		}
 	}
 

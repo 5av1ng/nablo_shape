@@ -164,14 +164,10 @@ impl Painter {
 			return None
 		}
 
-		if let ShapeElement::Text(_) = shape.shape {
+		if self.paint_area.is_inside(&shape.get_area()) || self.paint_area.is_cross(&shape.get_area()) || shape.get_area().is_inside(&self.paint_area) {
 			self.shapes.push(shape);
 		}else {
-			if self.paint_area.is_inside(&shape.get_area()) || self.paint_area.is_cross(&shape.get_area()) || shape.get_area().is_inside(&self.paint_area) {
-				self.shapes.push(shape);
-			}else {
-				return None
-			}
+			return None
 		}
 
 		let len = self.shapes.len();
